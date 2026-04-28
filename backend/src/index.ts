@@ -34,7 +34,9 @@ import {
   listStreams,
   listStreamsByRecipient,
   listStreamsBySender,
+  pauseStream,
   refreshStreamStatuses,
+  resumeStream,
   StreamStatus,
   syncStreams,
   updateStreamStartAt,
@@ -246,7 +248,7 @@ app.get("/api/events", (req: Request, res: Response) => {
     !hasPage && !hasLimit ? total : (query.limit ?? PAGINATION_DEFAULT_LIMIT);
 
   const offset = (page - 1) * limit;
-  const data = getGlobalEvents(limit === 0 ? 0 : limit, offset, eventType);
+  const data = getGlobalEvents(limit === 0 ? 0 : limit, offset, eventType, query.cursor);
 
   res.json({ data, total, page, limit });
 });
@@ -490,9 +492,8 @@ app.post("/api/auth/token", (req: Request, res: Response) => {
     res.json({ token });
   } catch (error: any) {
     console.error("Failed to verify challenge:", error);
-    const normalizedError = normalizeUnknownApiError(error, "Failed to verify challenge.");
-    sendApiError(req, res, normalizedError.statusCode, normalizedError.message, {
-      code: normalizedError.code ?? "INTERNAL_ERROR",
+    sendApiError(req, res, 401, error.message || "Challenge verification failed.", {
+      code: "UNAUTHORIZED",
     });
   }
 });
@@ -676,6 +677,80 @@ app.patch(
         error,
         "Failed to update stream start time.",
       );
+      sendApiError(req, res, normalizedError.statusCode, normalizedError.message, {
+        code: normalizedError.code ?? "INTERNAL_ERROR",
+      });
+    }
+  },
+);
+
+app.patch(
+  "/api/streams/:id/pause",
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    const parsedId = parseStreamId(req.params.id);
+    if (!parsedId.ok) {
+      sendValidationError(req, res, parsedId.issues);
+      return;
+    }
+
+    const stream = getStream(parsedId.value);
+    if (!stream) {
+      sendApiError(req, res, 404, "Stream not found.", { code: "NOT_FOUND" });
+      return;
+    }
+
+    const user = (req as any).user;
+    if (stream.sender !== user.accountId) {
+      sendApiError(req, res, 403, "Only the sender can pause this stream.", {
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+
+    try {
+      const pausedStream = await pauseStream(parsedId.value);
+      res.json({ data: { ...pausedStream, progress: calculateProgress(pausedStream!) } });
+    } catch (error: any) {
+      console.error("Failed to pause stream:", error);
+      const normalizedError = normalizeUnknownApiError(error, "Failed to pause stream.");
+      sendApiError(req, res, normalizedError.statusCode, normalizedError.message, {
+        code: normalizedError.code ?? "INTERNAL_ERROR",
+      });
+    }
+  },
+);
+
+app.patch(
+  "/api/streams/:id/resume",
+  authMiddleware,
+  async (req: Request, res: Response) => {
+    const parsedId = parseStreamId(req.params.id);
+    if (!parsedId.ok) {
+      sendValidationError(req, res, parsedId.issues);
+      return;
+    }
+
+    const stream = getStream(parsedId.value);
+    if (!stream) {
+      sendApiError(req, res, 404, "Stream not found.", { code: "NOT_FOUND" });
+      return;
+    }
+
+    const user = (req as any).user;
+    if (stream.sender !== user.accountId) {
+      sendApiError(req, res, 403, "Only the sender can resume this stream.", {
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+
+    try {
+      const resumedStream = await resumeStream(parsedId.value);
+      res.json({ data: { ...resumedStream, progress: calculateProgress(resumedStream!) } });
+    } catch (error: any) {
+      console.error("Failed to resume stream:", error);
+      const normalizedError = normalizeUnknownApiError(error, "Failed to resume stream.");
       sendApiError(req, res, normalizedError.statusCode, normalizedError.message, {
         code: normalizedError.code ?? "INTERNAL_ERROR",
       });
