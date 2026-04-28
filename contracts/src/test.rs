@@ -12,6 +12,15 @@ fn create_token(env: &Env, admin: &Address) -> Address {
     token_contract_id.address()
 }
 
+#[contract]
+struct MockToken;
+#[contractimpl]
+impl MockToken {
+    pub fn transfer(_env: Env, _from: Address, _to: Address, _amount: i128) {}
+    pub fn balance(_env: Env, _id: Address) -> i128 { 1000 }
+    pub fn symbol(env: Env) -> String { String::from_str(&env, "XLM") }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -501,6 +510,40 @@ fn test_stream_created_snapshot() {
     };
 
     assert_snapshot!("stream_created_event", event);
+}
+
+#[test]
+fn test_native_xlm_streaming() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, StellarStreamContract);
+    let client = StellarStreamContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    
+    // Define the sentinel address
+    let sentinel = Address::from_string(&String::from_str(&env, NATIVE_SENTINEL));
+    
+    // Register a mock token contract at its own address
+    let native_token_admin = env.register_stellar_asset_contract_v2(sender.clone());
+    let native_token_address = native_token_admin.address();
+    let native_token_client = token::StellarAssetClient::new(&env, &native_token_address);
+    native_token_client.mint(&sender, &1000);
+    
+    client.initialize(&admin, &native_token_address);
+
+    let stream_id = client.create_stream(&sender, &recipient, &sentinel, &500, &0, &1000, &None);
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.token, sentinel);
+    
+    // Claiming
+    env.ledger().with_mut(|l| l.timestamp = 500);
+    client.claim(&stream_id, &recipient, &250);
+    
+    let stream_after = client.get_stream(&stream_id);
+    assert_eq!(stream_after.claimed_amount, 250);
 }
 
 #[test]
@@ -1203,7 +1246,7 @@ fn test_initialize_stores_admin() {
     let client = StellarStreamContractClient::new(&env, &contract_id);
 
     let compliance_admin = Address::generate(&env);
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
     // No panic → admin was stored successfully
 }
 
@@ -1217,8 +1260,8 @@ fn test_initialize_cannot_be_called_twice() {
     let client = StellarStreamContractClient::new(&env, &contract_id);
 
     let compliance_admin = Address::generate(&env);
-    client.initialize(&compliance_admin);
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
+    client.initialize(&compliance_admin, &Address::generate(&env));
 }
 
 /// Admin can claw back up to the unclaimed vested amount.
@@ -1237,7 +1280,7 @@ fn test_clawback_transfers_to_admin() {
     let token_mint = token::StellarAssetClient::new(&env, &token);
     token_mint.mint(&sender, &1000);
 
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
     let stream_id = client.create_stream(
         &sender, &recipient, &token, &1000, &0, &1000, &None,
     );
@@ -1267,7 +1310,7 @@ fn test_clawback_caps_at_unclaimed_vested() {
     let token_mint = token::StellarAssetClient::new(&env, &token);
     token_mint.mint(&sender, &1000);
 
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
     let stream_id = client.create_stream(
         &sender, &recipient, &token, &1000, &0, &1000, &None,
     );
@@ -1294,7 +1337,7 @@ fn test_clawback_reduces_recipient_claimable() {
     let token_mint = token::StellarAssetClient::new(&env, &token);
     token_mint.mint(&sender, &1000);
 
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
     let stream_id = client.create_stream(
         &sender, &recipient, &token, &1000, &0, &1000, &None,
     );
@@ -1330,7 +1373,7 @@ fn test_clawback_non_admin_panics() {
     let token_mint = token::StellarAssetClient::new(&env, &token);
     token_mint.mint(&sender, &1000);
 
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
     let stream_id = client.create_stream(
         &sender, &recipient, &token, &1000, &0, &1000, &None,
     );
@@ -1380,7 +1423,7 @@ fn test_clawback_emits_event() {
     let token_mint = token::StellarAssetClient::new(&env, &token);
     token_mint.mint(&sender, &1000);
 
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
     let stream_id = client.create_stream(
         &sender, &recipient, &token, &1000, &0, &1000, &None,
     );
@@ -1416,7 +1459,7 @@ fn test_clawback_token_conservation() {
     let token_mint = token::StellarAssetClient::new(&env, &token);
     token_mint.mint(&sender, &1000);
 
-    client.initialize(&compliance_admin);
+    client.initialize(&compliance_admin, &Address::generate(&env));
     let stream_id = client.create_stream(
         &sender, &recipient, &token, &1000, &0, &1000, &None,
     );
