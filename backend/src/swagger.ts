@@ -510,6 +510,15 @@ export const swaggerDocument = {
             },
           },
           {
+            name: "assetCode",
+            in: "query",
+            required: false,
+            description: "Filter by one or more asset codes (comma-separated). Case-insensitive. Example: ?assetCode=USDC,XLM",
+            schema: {
+              type: "string",
+            },
+          },
+          {
             name: "q",
             in: "query",
             required: false,

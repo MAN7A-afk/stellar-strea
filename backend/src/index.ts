@@ -94,6 +94,14 @@ const listStreamsQuerySchema = z.object({
   recipient: z.string().trim().optional(),
   sender: z.string().trim().optional(),
   asset: z.string().trim().optional(),
+  assetCode: z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => {
+      if (!value) return undefined;
+      return value.split(",").map((code) => code.trim().toUpperCase());
+    }),
   q: z.string().trim().optional(),
   minAmount: z
     .coerce.number()
@@ -235,6 +243,11 @@ app.get("/api/streams", (req: Request, res: Response) => {
       (stream) => stream.assetCode.toLowerCase() === query.asset!.toLowerCase(),
     );
   }
+  if (query.assetCode && query.assetCode.length > 0) {
+    data = data.filter((stream) =>
+      query.assetCode!.includes(stream.assetCode.toUpperCase()),
+    );
+  }
   if (query.q && query.q.length > 0) {
     const searchTerm = query.q.toLowerCase();
     data = data.filter((stream) => {
@@ -314,6 +327,11 @@ app.get("/api/streams/export.csv", (req: Request, res: Response) => {
   if (query.asset) {
     data = data.filter(
       (stream) => stream.assetCode.toLowerCase() === query.asset!.toLowerCase(),
+    );
+  }
+  if (query.assetCode && query.assetCode.length > 0) {
+    data = data.filter((stream) =>
+      query.assetCode!.includes(stream.assetCode.toUpperCase()),
     );
   }
   if (query.sender) {
